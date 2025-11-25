@@ -1,0 +1,33 @@
+import dotenv from 'dotenv';
+
+dotenv.config({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
+
+const requiredVars = ['PORT', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
+
+requiredVars.forEach((key) => {
+  if (!process.env[key]) {
+    console.warn(`⚠️  Missing environment variable: ${key}`);
+  }
+});
+
+export const env = {
+  nodeEnv: process.env.NODE_ENV ?? 'development',
+  port: Number(process.env.PORT) || 4000,
+  mysql: {
+    host: process.env.MYSQL_HOST ?? 'localhost',
+    port: Number(process.env.MYSQL_PORT) || 3306,
+    user: process.env.MYSQL_USER ?? 'root',
+    password: process.env.MYSQL_PASSWORD ?? '',
+    database: process.env.MYSQL_DATABASE ?? 'lost_pet_finder',
+  },
+  uploadsDir: process.env.UPLOADS_DIR ?? 'uploads',
+  clientUrl: process.env.CLIENT_URL ?? 'http://localhost:5173',
+  aws: {
+    region: process.env.AWS_REGION ?? '',
+    bucket: process.env.S3_BUCKET ?? '',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
+    prefix: process.env.S3_PREFIX ?? '',
+  },
+};
+
