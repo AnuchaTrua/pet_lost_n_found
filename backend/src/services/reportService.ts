@@ -293,5 +293,36 @@ export const reportService = {
       closed: Number(result.closed) || 0,
     };
   },
-};
 
+  async remove(id: number) {
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.query<RowDataPacket[]>(
+        `SELECT lr.pet_id, p.owner_id FROM lost_reports lr JOIN pets p ON lr.pet_id = p.id WHERE lr.id = ?`,
+        [id],
+      );
+
+      if (!rows.length) {
+        throw new HttpException(404, 'Report not found');
+      }
+
+      const { pet_id: petId, owner_id: ownerId } = rows[0];
+
+      await conn.query('DELETE FROM pet_photos WHERE pet_id = ?', [petId]);
+      await conn.query('DELETE FROM lost_reports WHERE id = ?', [id]);
+      await conn.query('DELETE FROM pets WHERE id = ?', [petId]);
+      await conn.query('DELETE FROM owners WHERE id = ? AND NOT EXISTS (SELECT 1 FROM pets WHERE owner_id = ?)', [
+        ownerId,
+        ownerId,
+      ]);
+
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  },
+};

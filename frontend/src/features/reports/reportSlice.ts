@@ -67,6 +67,11 @@ export const fetchSummary = createAsyncThunk<SummaryStats>('reports/summary', as
   return data;
 });
 
+export const deleteReport = createAsyncThunk<number, number>('reports/delete', async (id) => {
+  await api.delete(`/reports/${id}`);
+  return id;
+});
+
 const reportSlice = createSlice({
   name: 'reports',
   initialState,
@@ -113,9 +118,14 @@ const reportSlice = createSlice({
       })
       .addCase(fetchSummary.rejected, (state) => {
         state.summaryLoading = false;
+      })
+      .addCase(deleteReport.fulfilled, (state, action) => {
+        state.items = state.items.filter((item) => item.id !== action.payload);
+        if (state.selected?.id === action.payload) {
+          state.selected = null;
+        }
       });
   },
 });
 
 export default reportSlice.reducer;
-

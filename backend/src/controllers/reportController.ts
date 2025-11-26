@@ -76,5 +76,14 @@ export const reportController = {
     const stats = await reportService.summary();
     res.json(stats);
   },
-};
 
+  async remove(req: Request, res: Response) {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      throw new HttpException(400, 'Invalid report id');
+    }
+
+    await reportService.remove(id);
+    res.status(204).send();
+  },
+};

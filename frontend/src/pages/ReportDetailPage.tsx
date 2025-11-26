@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeftIcon, MapPinIcon, UserIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline';
 import { useAppDispatch, useAppSelector } from '@/app/hooks';
-import { fetchReportById, updateReportStatus, fetchSummary } from '@/features/reports/reportSlice';
+import { fetchReportById, updateReportStatus, fetchSummary, deleteReport } from '@/features/reports/reportSlice';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ReportMap } from '@/components/ReportMap';
 
@@ -13,6 +13,8 @@ export const ReportDetailPage = () => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { items, selected } = useAppSelector((state) => state.reports);
+  const { isAdmin } = useAppSelector((state) => state.auth);
+  const [deleting, setDeleting] = useState(false);
 
   const report = useMemo(() => items.find((item) => item.id === Number(id)) ?? selected, [id, items, selected]);
 
@@ -46,6 +48,20 @@ export const ReportDetailPage = () => {
     dispatch(fetchSummary());
   };
 
+  const handleDelete = async () => {
+    if (!isAdmin || deleting) return;
+    const confirmed = window.confirm('ยืนยันการลบประกาศนี้หรือไม่?');
+    if (!confirmed) return;
+    try {
+      setDeleting(true);
+      await dispatch(deleteReport(report.id)).unwrap();
+      dispatch(fetchSummary());
+      navigate('/');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <button className="btn btn-ghost gap-2" onClick={() => navigate(-1)}>
@@ -72,6 +88,11 @@ export const ReportDetailPage = () => {
               <button className="btn btn-outline btn-sm" onClick={handleStatusChange}>
                 เปลี่ยนสถานะเป็น {report.status === 'closed' ? 'ตามหาอยู่' : 'ปิดเคส'}
               </button>
+              {isAdmin && (
+                <button className="btn btn-error btn-sm" onClick={handleDelete} disabled={deleting}>
+                  {deleting ? 'กำลังลบ...' : 'ลบประกาศนี้'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -135,4 +156,3 @@ export const ReportDetailPage = () => {
     </div>
   );
 };
-
