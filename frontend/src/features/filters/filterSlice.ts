@@ -1,9 +1,9 @@
 import { PayloadAction, createSlice } from '@reduxjs/toolkit';
 import { ReportFilters } from '@/types/report';
 
-type FilterKey = keyof ReportFilters;
+type FilterKey = Exclude<keyof ReportFilters, 'userId'>;
 
-interface FilterState extends ReportFilters {}
+interface FilterState extends Omit<ReportFilters, 'userId'> {}
 
 const initialState: FilterState = {};
 
@@ -35,4 +35,3 @@ const filterSlice = createSlice({
 
 export const { setFilters, resetFilters } = filterSlice.actions;
 export default filterSlice.reducer;
-

@@ -34,6 +34,7 @@ export interface PetPhoto {
 
 export interface PetReport {
   id: number;
+  userId: number;
   petId: number;
   dateLost: string;
   province?: string | null;
@@ -59,4 +60,5 @@ export interface ReportFilters {
   status?: ReportStatus;
   reportType?: ReportType;
   search?: string;
+  userId?: number;
 }
