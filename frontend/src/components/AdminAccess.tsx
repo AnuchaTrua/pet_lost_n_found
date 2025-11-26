@@ -1,21 +1,25 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '@/app/hooks';
-import { adminLogin, clearError, logout } from '@/features/auth/authSlice';
+import { clearError, login, logout } from '@/features/auth/authSlice';
 
 export const AdminAccess = () => {
   const dispatch = useAppDispatch();
-  const { isAdmin, status, error } = useAppSelector((state) => state.auth);
+  const { user, token, status, error } = useAppSelector((state) => state.auth);
   const [open, setOpen] = useState(false);
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  const isAuthenticated = Boolean(token && user);
+  const isAdmin = user?.role === 'admin';
+
   useEffect(() => {
-    if (isAdmin) {
+    if (isAuthenticated) {
       setOpen(false);
-      setUsername('');
+      setEmail('');
       setPassword('');
     }
-  }, [isAdmin]);
+  }, [isAuthenticated]);
 
   const toggle = () => {
     setOpen((prev) => {
@@ -28,13 +32,18 @@ export const AdminAccess = () => {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    dispatch(adminLogin({ username, password }));
+    dispatch(login({ email, password }));
   };
 
-  if (isAdmin) {
+  if (isAuthenticated && user) {
     return (
       <div className="flex items-center gap-3 text-xs font-semibold text-primary">
-        <span className="rounded-full bg-primary/10 px-3 py-1">ADMIN MODE</span>
+        <span className="rounded-full bg-primary/10 px-3 py-1">
+          {isAdmin ? 'ADMIN' : 'USER'} · {user.fullname}
+        </span>
+        <Link to="/my-reports" className="btn btn-xs btn-outline">
+          โพสต์ของฉัน
+        </Link>
         <button className="btn btn-xs btn-ghost" onClick={() => dispatch(logout())}>
           ออกจากระบบ
         </button>
@@ -45,22 +54,23 @@ export const AdminAccess = () => {
   return (
     <div className="relative">
       <button className="btn btn-sm btn-ghost" onClick={toggle}>
-        Admin
+        เข้าสู่ระบบ
       </button>
       {open && (
         <form
           onSubmit={handleSubmit}
-          className="absolute right-0 z-20 mt-2 w-64 rounded-2xl border border-base-200 bg-white p-4 text-sm shadow-xl"
+          className="absolute right-0 z-20 mt-2 w-72 rounded-2xl border border-base-200 bg-white p-4 text-sm shadow-xl"
         >
-          <p className="mb-2 text-xs font-semibold text-base-content/70">เข้าสู่ระบบผู้ดูแล</p>
+          <p className="mb-2 text-xs font-semibold text-base-content/70">เข้าสู่ระบบ</p>
           <div className="space-y-2">
             <input
-              type="text"
+              type="email"
               className="input input-bordered input-sm w-full"
-              placeholder="ชื่อผู้ใช้"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
+              placeholder="อีเมล"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
             />
             <input
               type="password"
@@ -69,11 +79,15 @@ export const AdminAccess = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
+              required
             />
             {error && <p className="text-xs text-error">{error}</p>}
             <button className="btn btn-primary btn-sm w-full" type="submit" disabled={status === 'loading'}>
               {status === 'loading' ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
             </button>
+            <Link to="/register" className="btn btn-ghost btn-xs w-full text-center">
+              สมัครสมาชิก
+            </Link>
           </div>
         </form>
       )}

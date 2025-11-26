@@ -18,9 +18,6 @@ export const MainLayout = ({ children }: Props) => {
               <NavLink to="/" className={({ isActive }) => (isActive ? 'text-primary' : '')}>
                 หน้าหลัก
               </NavLink>
-              <a href="https://www.openstreetmap.org/copyright" className="hover:text-primary" target="_blank" rel="noreferrer">
-                ข้อมูลแผนที่
-              </a>
             </nav>
             <AdminAccess />
           </div>

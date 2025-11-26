@@ -4,9 +4,11 @@ import { PetReport, ReportFilters, ReportStatus, SummaryStats } from '@/types/re
 
 interface ReportsState {
   items: PetReport[];
+  mine: PetReport[];
   selected: PetReport | null;
   summary: SummaryStats | null;
   loading: boolean;
+  mineLoading: boolean;
   summaryLoading: boolean;
   submitStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
   error: string | null;
@@ -14,9 +16,11 @@ interface ReportsState {
 
 const initialState: ReportsState = {
   items: [],
+  mine: [],
   selected: null,
   summary: null,
   loading: false,
+  mineLoading: false,
   summaryLoading: false,
   submitStatus: 'idle',
   error: null,
@@ -72,6 +76,39 @@ export const deleteReport = createAsyncThunk<number, number>('reports/delete', a
   return id;
 });
 
+export const fetchMyReports = createAsyncThunk<PetReport[]>('reports/fetchMine', async () => {
+  const { data } = await api.get<PetReport[]>('/reports/mine');
+  return data;
+});
+
+export const updateReportDetails = createAsyncThunk<PetReport, { id: number; payload: Partial<PetReport> }>(
+  'reports/updateDetails',
+  async ({ id, payload }) => {
+    const body = {
+      petName: payload.pet?.name,
+      species: payload.pet?.species,
+      breed: payload.pet?.breed,
+      color: payload.pet?.color,
+      sex: payload.pet?.sex,
+      ageYears: payload.pet?.ageYears,
+      microchipId: payload.pet?.microchipId,
+      specialMark: payload.pet?.specialMark,
+      reportType: payload.reportType,
+      status: payload.status,
+      dateLost: payload.dateLost,
+      province: payload.province,
+      district: payload.district,
+      lastSeenAddress: payload.lastSeenAddress,
+      lastSeenLat: payload.lastSeenLat,
+      lastSeenLng: payload.lastSeenLng,
+      rewardAmount: payload.rewardAmount,
+      description: payload.description,
+    };
+    const { data } = await api.patch<PetReport>(`/reports/${id}`, body);
+    return data;
+  },
+);
+
 const reportSlice = createSlice({
   name: 'reports',
   initialState,
@@ -95,16 +132,25 @@ const reportSlice = createSlice({
       .addCase(createReport.pending, (state) => {
         state.submitStatus = 'loading';
       })
-      .addCase(createReport.fulfilled, (state, action) => {
-        state.submitStatus = 'succeeded';
-        state.items = [action.payload, ...state.items];
-      })
+    .addCase(createReport.fulfilled, (state, action) => {
+      state.submitStatus = 'succeeded';
+      state.items = [action.payload, ...state.items];
+      state.mine = [action.payload, ...state.mine];
+    })
       .addCase(createReport.rejected, (state, action) => {
         state.submitStatus = 'failed';
         state.error = action.error.message ?? 'เกิดข้อผิดพลาดในการบันทึก';
       })
-      .addCase(updateReportStatus.fulfilled, (state, action) => {
+    .addCase(updateReportStatus.fulfilled, (state, action) => {
+      state.items = state.items.map((item) => (item.id === action.payload.id ? action.payload : item));
+      state.mine = state.mine.map((item) => (item.id === action.payload.id ? action.payload : item));
+      if (state.selected?.id === action.payload.id) {
+        state.selected = action.payload;
+      }
+    })
+      .addCase(updateReportDetails.fulfilled, (state, action) => {
         state.items = state.items.map((item) => (item.id === action.payload.id ? action.payload : item));
+        state.mine = state.mine.map((item) => (item.id === action.payload.id ? action.payload : item));
         if (state.selected?.id === action.payload.id) {
           state.selected = action.payload;
         }
@@ -124,6 +170,18 @@ const reportSlice = createSlice({
         if (state.selected?.id === action.payload) {
           state.selected = null;
         }
+        state.mine = state.mine.filter((item) => item.id !== action.payload);
+      })
+      .addCase(fetchMyReports.pending, (state) => {
+        state.mineLoading = true;
+      })
+      .addCase(fetchMyReports.fulfilled, (state, action) => {
+        state.mineLoading = false;
+        state.mine = action.payload;
+      })
+      .addCase(fetchMyReports.rejected, (state, action) => {
+        state.mineLoading = false;
+        state.error = action.error.message ?? 'ไม่สามารถโหลดโพสต์ของคุณได้';
       });
   },
 });

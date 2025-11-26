@@ -1,25 +1,35 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { api, setAuthToken } from '@/lib/api';
+import type { User } from '@/types/user';
+import type { RootState } from '@/app/store';
 
 interface Credentials {
-  username: string;
+  email: string;
   password: string;
+}
+
+interface RegisterPayload {
+  fullname: string;
+  email: string;
+  password: string;
+  phone?: string;
+  lineId?: string;
 }
 
 interface AuthState {
   token: string | null;
+  user: User | null;
   status: 'idle' | 'loading' | 'succeeded' | 'failed';
   error: string | null;
-  isAdmin: boolean;
 }
 
-const TOKEN_KEY = 'adminToken';
+const TOKEN_KEY = 'authToken';
 
 const initialState: AuthState = {
   token: null,
+  user: null,
   status: 'idle',
   error: null,
-  isAdmin: false,
 };
 
 const storeToken = (token: string | null) => {
@@ -36,14 +46,43 @@ const readToken = () => {
   return window.localStorage.getItem(TOKEN_KEY);
 };
 
-export const adminLogin = createAsyncThunk<string, Credentials, { rejectValue: string }>(
+export const login = createAsyncThunk<{ token: string; user: User }, Credentials, { rejectValue: string }>(
   'auth/login',
   async (credentials, { rejectWithValue }) => {
     try {
-      const { data } = await api.post<{ token: string }>('/auth/login', credentials);
-      return data.token;
+      const { data } = await api.post<{ token: string; user: User }>('/auth/login', credentials);
+      return data;
     } catch (error) {
-      return rejectWithValue('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      return rejectWithValue('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+    }
+  },
+);
+
+export const fetchCurrentUser = createAsyncThunk<User, void, { state: RootState; rejectValue: string }>(
+  'auth/me',
+  async (_payload, { getState, rejectWithValue, dispatch }) => {
+    const token = getState().auth.token;
+    if (!token) {
+      return rejectWithValue('no-token');
+    }
+    try {
+      const { data } = await api.get<User>('/auth/me');
+      return data;
+    } catch (error) {
+      dispatch(logout());
+      return rejectWithValue('unauthorized');
+    }
+  },
+);
+
+export const register = createAsyncThunk<{ token: string; user: User }, RegisterPayload, { rejectValue: string }>(
+  'auth/register',
+  async (payload, { rejectWithValue }) => {
+    try {
+      const { data } = await api.post<{ token: string; user: User }>('/auth/register', payload);
+      return data;
+    } catch (error) {
+      return rejectWithValue('สมัครสมาชิกไม่สำเร็จ อีเมลอาจถูกใช้ไปแล้ว');
     }
   },
 );
@@ -56,13 +95,12 @@ const authSlice = createSlice({
       const token = readToken();
       if (token) {
         state.token = token;
-        state.isAdmin = true;
         setAuthToken(token);
       }
     },
     logout: (state) => {
       state.token = null;
-      state.isAdmin = false;
+      state.user = null;
       state.status = 'idle';
       state.error = null;
       storeToken(null);
@@ -74,20 +112,46 @@ const authSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(adminLogin.pending, (state) => {
+      .addCase(login.pending, (state) => {
         state.status = 'loading';
         state.error = null;
       })
-      .addCase(adminLogin.fulfilled, (state, action) => {
+      .addCase(login.fulfilled, (state, action) => {
         state.status = 'succeeded';
-        state.token = action.payload;
-        state.isAdmin = true;
-        storeToken(action.payload);
-        setAuthToken(action.payload);
+        state.token = action.payload.token;
+        state.user = action.payload.user;
+        storeToken(action.payload.token);
+        setAuthToken(action.payload.token);
       })
-      .addCase(adminLogin.rejected, (state, action) => {
+      .addCase(login.rejected, (state, action) => {
         state.status = 'failed';
         state.error = action.payload ?? 'ไม่สามารถเข้าสู่ระบบได้';
+      })
+      .addCase(fetchCurrentUser.fulfilled, (state, action) => {
+        state.user = action.payload;
+      })
+      .addCase(fetchCurrentUser.rejected, (state, action) => {
+        if (action.payload === 'unauthorized') {
+          state.token = null;
+          state.user = null;
+          storeToken(null);
+          setAuthToken(null);
+        }
+      })
+      .addCase(register.pending, (state) => {
+        state.status = 'loading';
+        state.error = null;
+      })
+      .addCase(register.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.token = action.payload.token;
+        state.user = action.payload.user;
+        storeToken(action.payload.token);
+        setAuthToken(action.payload.token);
+      })
+      .addCase(register.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload ?? 'สมัครสมาชิกไม่สำเร็จ';
       });
   },
 });

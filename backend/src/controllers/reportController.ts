@@ -3,6 +3,8 @@ import { reportService } from '../services/reportService';
 import { HttpException } from '../utils/httpException';
 import { ReportStatus } from '../types/report';
 import { storageService } from '../services/storageService';
+import type { AuthUser } from '../middleware/authMiddleware';
+import { userService } from '../services/userService';
 
 export const reportController = {
   async list(req: Request, res: Response) {
@@ -25,6 +27,16 @@ export const reportController = {
 
   async create(req: Request, res: Response) {
     const body = req.body;
+    const user = (req as Request & { user?: AuthUser }).user;
+    if (!user) {
+      throw new HttpException(401, 'Unauthorized');
+    }
+
+    const dbUser = await userService.findById(user.id);
+    if (!dbUser) {
+      throw new HttpException(404, 'User not found');
+    }
+
     let photoUrl: string | null = null;
 
     if (req.file) {
@@ -32,10 +44,10 @@ export const reportController = {
     }
 
     const payload = {
-      ownerName: body.ownerName,
-      ownerPhone: body.ownerPhone,
-      ownerEmail: body.ownerEmail,
-      ownerLineId: body.ownerLineId,
+      ownerName: body.ownerName ?? dbUser.fullname,
+      ownerPhone: body.ownerPhone ?? dbUser.phone ?? '',
+      ownerEmail: body.ownerEmail ?? dbUser.email,
+      ownerLineId: body.ownerLineId ?? dbUser.lineId,
       petName: body.petName,
       species: body.species,
       breed: body.breed,
@@ -55,6 +67,7 @@ export const reportController = {
       rewardAmount: body.rewardAmount ?? 0,
       description: body.description,
       photoUrl,
+      userId: dbUser.id,
     };
 
     const report = await reportService.create(payload);
@@ -67,14 +80,55 @@ export const reportController = {
       throw new HttpException(400, 'Invalid report id');
     }
 
+    const user = (req as Request & { user?: AuthUser }).user;
+    if (!user) {
+      throw new HttpException(401, 'Unauthorized');
+    }
+
+    if (user.role !== 'admin') {
+      const owned = await reportService.isOwnedByUser(id, user.id);
+      if (!owned) {
+        throw new HttpException(403, 'You can only update your own reports');
+      }
+    }
+
     const { status } = req.body;
     const report = await reportService.updateStatus(id, status);
     res.json(report);
   },
 
+  async updateDetails(req: Request, res: Response) {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      throw new HttpException(400, 'Invalid report id');
+    }
+    const user = (req as Request & { user?: AuthUser }).user;
+    if (!user) {
+      throw new HttpException(401, 'Unauthorized');
+    }
+    if (user.role !== 'admin') {
+      const owned = await reportService.isOwnedByUser(id, user.id);
+      if (!owned) {
+        throw new HttpException(403, 'You can only edit your own reports');
+      }
+    }
+
+    const updated = await reportService.updateDetails(id, req.body);
+    res.json(updated);
+  },
+
   async summary(_req: Request, res: Response) {
     const stats = await reportService.summary();
     res.json(stats);
+  },
+
+  async mine(req: Request, res: Response) {
+    const user = (req as Request & { user?: AuthUser }).user;
+    if (!user) {
+      throw new HttpException(401, 'Unauthorized');
+    }
+    const reports = await reportService.list({ userId: user.id });
+    res.json(reports);
   },
 
   async remove(req: Request, res: Response) {

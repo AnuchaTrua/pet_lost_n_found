@@ -2,6 +2,7 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
 import { pool } from '../db/pool';
 import { PetPhoto, PetReport, ReportFilters, ReportStatus, ReportType } from '../types/report';
 import { HttpException } from '../utils/httpException';
+import { storageService } from './storageService';
 
 type CreateReportPayload = {
   ownerName: string;
@@ -27,10 +28,54 @@ type CreateReportPayload = {
   rewardAmount?: number;
   description?: string;
   photoUrl?: string | null;
+  userId: number;
 };
 
-const mapRowToReport = (row: RowDataPacket, photos: Map<number, PetPhoto[]>): PetReport => ({
+type UpdateReportPayload = Partial<Omit<CreateReportPayload, 'userId'>>;
+
+type PhotoRow = RowDataPacket & {
+  id: number;
+  pet_id: number;
+  photo_url: string;
+  is_main: number;
+  created_at: string;
+};
+
+type ReportRow = RowDataPacket & {
+  report_id: number;
+  user_id: number;
+  pet_id: number;
+  date_lost: string;
+  province: string | null;
+  district: string | null;
+  last_seen_address: string | null;
+  last_seen_lat: number | null;
+  last_seen_lng: number | null;
+  reward_amount: number | null;
+  status: ReportStatus;
+  report_type: ReportType;
+  description: string | null;
+  report_created_at: string;
+  report_updated_at: string;
+  pet_name: string;
+  species: string;
+  breed: string | null;
+  color: string | null;
+  sex: 'male' | 'female' | 'unknown';
+  age_years: number | null;
+  microchip_id: string | null;
+  special_mark: string | null;
+  main_photo_url: string | null;
+  owner_id: number;
+  full_name: string;
+  phone: string;
+  email: string | null;
+  line_id: string | null;
+};
+
+const mapRowToReport = (row: ReportRow, photos: Map<number, PetPhoto[]>): PetReport => ({
   id: row.report_id,
+  userId: Number(row.user_id ?? 0),
   petId: row.pet_id,
   dateLost: row.date_lost,
   province: row.province,
@@ -101,6 +146,10 @@ const buildFilters = (filters: ReportFilters) => {
       `%${filters.search}%`,
     );
   }
+  if (filters.userId) {
+    where.push('lr.user_id = ?');
+    values.push(filters.userId);
+  }
 
   return { where: where.length ? `WHERE ${where.join(' AND ')}` : '', values };
 };
@@ -114,7 +163,15 @@ const fetchPhotosByPetIds = async (petIds: number[]): Promise<Map<number, PetPho
     [petIds],
   );
 
-  rows.forEach((row) => {
+  const photoRows = rows as PhotoRow[];
+  const rowsWithUrls = await Promise.all(
+    photoRows.map(async (row) => ({
+      ...row,
+      photo_url: (await storageService.getPublicUrl(row.photo_url)) ?? row.photo_url,
+    })),
+  );
+
+  rowsWithUrls.forEach((row) => {
     const entry: PetPhoto = {
       id: row.id,
       petId: row.pet_id,
@@ -136,6 +193,7 @@ const fetchReportsWithPhotos = async (filters: ReportFilters & { id?: number }):
   const query = `
     SELECT
       lr.id AS report_id,
+      lr.user_id,
       lr.pet_id,
       lr.date_lost,
       lr.province,
@@ -171,10 +229,17 @@ const fetchReportsWithPhotos = async (filters: ReportFilters & { id?: number }):
   `;
 
   const [rows] = await pool.query<RowDataPacket[]>(query, filters.id ? [...values, filters.id] : values);
-  const petIds = rows.map((row) => row.pet_id);
+  const reportRows = rows as ReportRow[];
+  const rowsWithMainUrl = await Promise.all(
+    reportRows.map(async (row) => ({
+      ...row,
+      main_photo_url: (await storageService.getPublicUrl(row.main_photo_url)) ?? row.main_photo_url,
+    })),
+  );
+  const petIds = rowsWithMainUrl.map((row) => row.pet_id);
   const photos = await fetchPhotosByPetIds(petIds);
 
-  return rows.map((row) => mapRowToReport(row, photos));
+  return rowsWithMainUrl.map((row) => mapRowToReport(row, photos));
 };
 
 const insertOwner = async (conn: PoolConnection, payload: CreateReportPayload) => {
@@ -208,8 +273,8 @@ const insertPet = async (conn: PoolConnection, ownerId: number, payload: CreateR
 const insertReport = async (conn: PoolConnection, petId: number, payload: CreateReportPayload) => {
   const [reportResult] = await conn.query<ResultSetHeader>(
     `INSERT INTO lost_reports
-      (pet_id, date_lost, province, district, last_seen_address, last_seen_lat, last_seen_lng, reward_amount, status, report_type, description)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (pet_id, date_lost, province, district, last_seen_address, last_seen_lat, last_seen_lng, reward_amount, status, report_type, description, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       petId,
       payload.dateLost,
@@ -222,6 +287,7 @@ const insertReport = async (conn: PoolConnection, petId: number, payload: Create
       payload.status ?? 'lost',
       payload.reportType ?? 'lost',
       payload.description ?? null,
+      payload.userId,
     ],
   );
   return reportResult.insertId;
@@ -292,6 +358,108 @@ export const reportService = {
       sighted: Number(result.sighted) || 0,
       closed: Number(result.closed) || 0,
     };
+  },
+
+  async isOwnedByUser(reportId: number, userId: number) {
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT user_id FROM lost_reports WHERE id = ?', [reportId]);
+    if (!rows.length) {
+      throw new HttpException(404, 'Report not found');
+    }
+    const row = rows[0] as RowDataPacket & { user_id: number };
+    return row.user_id === userId;
+  },
+
+  async updateDetails(id: number, payload: UpdateReportPayload): Promise<PetReport> {
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT lr.pet_id, p.owner_id FROM lost_reports lr JOIN pets p ON lr.pet_id = p.id WHERE lr.id = ?',
+        [id],
+      );
+      if (!rows.length) {
+        throw new HttpException(404, 'Report not found');
+      }
+      const { pet_id: petId, owner_id: ownerId } = rows[0] as RowDataPacket & { pet_id: number; owner_id: number };
+
+      if (
+        payload.ownerName !== undefined ||
+        payload.ownerPhone !== undefined ||
+        payload.ownerEmail !== undefined ||
+        payload.ownerLineId !== undefined
+      ) {
+        await conn.query(
+          'UPDATE owners SET full_name = COALESCE(?, full_name), phone = COALESCE(?, phone), email = COALESCE(?, email), line_id = COALESCE(?, line_id) WHERE id = ?',
+          [
+            payload.ownerName ?? null,
+            payload.ownerPhone ?? null,
+            payload.ownerEmail ?? null,
+            payload.ownerLineId ?? null,
+            ownerId,
+          ],
+        );
+      }
+
+      await conn.query(
+        `UPDATE pets SET
+          name = COALESCE(?, name),
+          species = COALESCE(?, species),
+          breed = COALESCE(?, breed),
+          color = COALESCE(?, color),
+          sex = COALESCE(?, sex),
+          age_years = COALESCE(?, age_years),
+          microchip_id = COALESCE(?, microchip_id),
+          special_mark = COALESCE(?, special_mark)
+        WHERE id = ?`,
+        [
+          payload.petName ?? null,
+          payload.species ?? null,
+          payload.breed ?? null,
+          payload.color ?? null,
+          payload.sex ?? null,
+          payload.ageYears ?? null,
+          payload.microchipId ?? null,
+          payload.specialMark ?? null,
+          petId,
+        ],
+      );
+
+      await conn.query(
+        `UPDATE lost_reports SET
+          report_type = COALESCE(?, report_type),
+          status = COALESCE(?, status),
+          date_lost = COALESCE(?, date_lost),
+          province = COALESCE(?, province),
+          district = COALESCE(?, district),
+          last_seen_address = COALESCE(?, last_seen_address),
+          last_seen_lat = COALESCE(?, last_seen_lat),
+          last_seen_lng = COALESCE(?, last_seen_lng),
+          reward_amount = COALESCE(?, reward_amount),
+          description = COALESCE(?, description)
+        WHERE id = ?`,
+        [
+          payload.reportType ?? null,
+          payload.status ?? null,
+          payload.dateLost ?? null,
+          payload.province ?? null,
+          payload.district ?? null,
+          payload.lastSeenAddress ?? null,
+          payload.lastSeenLat ?? null,
+          payload.lastSeenLng ?? null,
+          payload.rewardAmount ?? null,
+          payload.description ?? null,
+          id,
+        ],
+      );
+
+      await conn.commit();
+      return this.findById(id);
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
   },
 
   async remove(id: number) {

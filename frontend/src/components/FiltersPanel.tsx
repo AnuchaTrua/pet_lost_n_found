@@ -9,6 +9,8 @@ const speciesOptions = ['สุนัข', 'แมว', 'นก', 'อื่น 
 export const FiltersPanel = () => {
   const dispatch = useAppDispatch();
   const filters = useAppSelector((state) => state.filters);
+  const { user, token } = useAppSelector((state) => state.auth);
+  const isAuthenticated = Boolean(user && token);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -21,7 +23,7 @@ export const FiltersPanel = () => {
     setFormValues(nextValues);
   }, [filters]);
 
-  const handleChange = (key: keyof ReportFilters, value: string) => {
+  const handleChange = (key: Exclude<keyof ReportFilters, 'userId'>, value: string) => {
     setFormValues((prev) => ({
       ...prev,
       [key]: value,
@@ -42,7 +44,7 @@ export const FiltersPanel = () => {
         } else if (key === 'reportType' && (value === 'lost' || value === 'found' || value === 'sighted')) {
           acc.reportType = value;
         } else {
-          acc[key as Exclude<keyof ReportFilters, 'status' | 'reportType'>] = value;
+          acc[key as Exclude<keyof ReportFilters, 'status' | 'reportType' | 'userId'>] = value;
         }
       }
       return acc;
@@ -148,7 +150,18 @@ export const FiltersPanel = () => {
         <div className="rounded-2xl border border-dashed border-primary/30 bg-primary/5 p-4">
           <p className="text-sm font-semibold text-primary">ร่วมช่วยกันแจ้งเบาะแส</p>
           <p className="text-xs text-primary/80">โพสต์สัตว์เลี้ยงหายหรือพบสัตว์จร คลิกปุ่มด้านล่างได้เลย</p>
-          <button type="button" className="btn btn-secondary mt-4 w-full" onClick={() => dispatch(openForm())}>
+          <button
+            type="button"
+            className="btn btn-secondary mt-4 w-full"
+            onClick={() => {
+              if (!isAuthenticated) {
+                // eslint-disable-next-line no-alert
+                alert('กรุณาเข้าสู่ระบบก่อนโพสต์ประกาศ');
+                return;
+              }
+              dispatch(openForm());
+            }}
+          >
             แจ้งสัตว์เลี้ยงหาย / พบสัตว์จร
           </button>
         </div>
@@ -156,4 +169,3 @@ export const FiltersPanel = () => {
     </aside>
   );
 };
-

@@ -36,6 +36,7 @@ export const ReportFormModal = () => {
   const { isFormOpen } = useAppSelector((state) => state.ui);
   const filters = useAppSelector((state) => state.filters);
   const submitStatus = useAppSelector((state) => state.reports.submitStatus);
+  const { user, token } = useAppSelector((state) => state.auth);
   const [searchText, setSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<
     { displayName: string; lat: string; lon: string; province?: string; district?: string }[]
@@ -80,6 +81,23 @@ export const ReportFormModal = () => {
       setGeoError(null);
     }
   }, [isFormOpen, reset]);
+
+  useEffect(() => {
+    if (isFormOpen && user) {
+      setValue('ownerName', user.fullname);
+      setValue('ownerPhone', user.phone ?? '');
+      setValue('ownerEmail', user.email);
+      setValue('ownerLineId', user.lineId ?? '');
+    }
+  }, [isFormOpen, user, setValue]);
+
+  useEffect(() => {
+    if (isFormOpen && (!token || !user)) {
+      dispatch(closeForm());
+      // eslint-disable-next-line no-alert
+      alert('กรุณาเข้าสู่ระบบก่อนโพสต์ประกาศ');
+    }
+  }, [isFormOpen, token, user, dispatch]);
 
   useEffect(() => {
     if (searchText.trim().length < 3) {
@@ -169,6 +187,7 @@ export const ReportFormModal = () => {
   };
 
   const onSubmit = async (values: FormValues) => {
+    if (!user || !token) return;
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
       if (key === 'photo' && value instanceof FileList && value.length) {
@@ -377,20 +396,20 @@ export const ReportFormModal = () => {
                 </header>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <label className="form-control">
-                    <span className="label-text">ชื่อผู้ติดต่อ*</span>
-                    <input className="input input-bordered" {...register('ownerName', { required: true })} />
+                    <span className="label-text">ชื่อผู้ติดต่อ</span>
+                    <input className="input input-bordered" {...register('ownerName')} readOnly={Boolean(user)} />
                   </label>
                   <label className="form-control">
-                    <span className="label-text">เบอร์โทร*</span>
-                    <input className="input input-bordered" {...register('ownerPhone', { required: true })} />
+                    <span className="label-text">เบอร์โทร</span>
+                    <input className="input input-bordered" {...register('ownerPhone')} readOnly={Boolean(user)} />
                   </label>
                   <label className="form-control">
                     <span className="label-text">อีเมล</span>
-                    <input className="input input-bordered" type="email" {...register('ownerEmail')} />
+                    <input className="input input-bordered" type="email" {...register('ownerEmail')} readOnly={Boolean(user)} />
                   </label>
                   <label className="form-control md:col-span-2">
                     <span className="label-text">Line / ช่องทางเพิ่มเติม</span>
-                    <input className="input input-bordered" {...register('ownerLineId')} />
+                    <input className="input input-bordered" {...register('ownerLineId')} readOnly={Boolean(user)} />
                   </label>
                 </div>
               </section>
@@ -421,4 +440,3 @@ export const ReportFormModal = () => {
     </div>
   );
 };
-
