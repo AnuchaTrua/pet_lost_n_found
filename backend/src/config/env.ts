@@ -7,9 +7,22 @@ const requiredVars = ['PORT', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_P
 
 requiredVars.forEach((key) => {
   if (!process.env[key]) {
-    console.warn(`⚠️  Missing environment variable: ${key}`);
+    console.warn(`[env] Missing environment variable: ${key}`);
   }
 });
+
+const r2Config = {
+  endpoint: process.env.R2_ENDPOINT ?? '',
+  region: process.env.R2_REGION ?? 'auto',
+  bucket: process.env.R2_BUCKET ?? '',
+  accessKeyId: process.env.ACCESS_KEY_ID ?? '',
+  secretAccessKey: process.env.SECRET_ACCESS_KEY ?? '',
+  prefix: process.env.R2_PREFIX ?? '',
+  useObjectAcl: (process.env.R2_USE_OBJECT_ACL ?? 'false') === 'true',
+  objectAcl: process.env.R2_OBJECT_ACL ?? 'public-read',
+  publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? '',
+  signedUrlExpiresIn: Number(process.env.R2_SIGNED_URL_EXPIRES_IN ?? '3600'),
+};
 
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -20,20 +33,12 @@ export const env = {
     user: process.env.MYSQL_USER ?? 'root',
     password: process.env.MYSQL_PASSWORD ?? '',
     database: process.env.MYSQL_DATABASE ?? 'lost_pet_finder',
+    ssl: (process.env.MYSQL_SSL ?? 'true') !== 'false',
+    sslRejectUnauthorized: (process.env.MYSQL_SSL_REJECT_UNAUTHORIZED ?? 'true') !== 'false',
   },
   uploadsDir: process.env.UPLOADS_DIR ?? 'uploads',
   clientUrl: process.env.CLIENT_URL ?? 'http://localhost:5173',
-  aws: {
-    region: process.env.AWS_REGION ?? '',
-    bucket: process.env.S3_BUCKET ?? '',
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
-    prefix: process.env.S3_PREFIX ?? '',
-    useObjectAcl: process.env.S3_USE_OBJECT_ACL !== 'false',
-    objectAcl: process.env.S3_OBJECT_ACL ?? 'public-read',
-    publicBaseUrl: process.env.S3_PUBLIC_BASE_URL ?? '',
-    signedUrlExpiresIn: Number(process.env.S3_SIGNED_URL_EXPIRES_IN ?? '3600'),
-  },
+  r2: r2Config,
   auth: {
     jwtSecret: process.env.JWT_SECRET ?? '',
     tokenExpiresIn: ((process.env.ADMIN_TOKEN_EXPIRES_IN as StringValue | undefined) ?? '12h') as StringValue,

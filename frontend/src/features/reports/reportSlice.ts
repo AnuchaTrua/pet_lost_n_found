@@ -52,10 +52,17 @@ export const fetchReportById = createAsyncThunk<PetReport, number>('reports/fetc
 });
 
 export const createReport = createAsyncThunk<PetReport, FormData>('reports/create', async (payload) => {
-  const { data } = await api.post<PetReport>('/reports', payload, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data;
+  try {
+    console.info('[report api] create start');
+    const { data } = await api.post<PetReport>('/reports', payload, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    console.info('[report api] create success');
+    return data;
+  } catch (error) {
+    console.error('[report api] create failed', error);
+    throw error;
+  }
 });
 
 export const updateReportStatus = createAsyncThunk<PetReport, { id: number; status: ReportStatus }>(

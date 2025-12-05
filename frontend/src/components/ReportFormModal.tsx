@@ -188,6 +188,12 @@ export const ReportFormModal = () => {
 
   const onSubmit = async (values: FormValues) => {
     if (!user || !token) return;
+    console.info('[report form] submit start', {
+      reportType: values.reportType,
+      status: values.status,
+      hasPhoto: Boolean(values.photo?.length),
+      userId: user.id,
+    });
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
       if (key === 'photo' && value instanceof FileList && value.length) {
@@ -199,11 +205,12 @@ export const ReportFormModal = () => {
 
     try {
       await dispatch(createReport(formData)).unwrap();
+      console.info('[report form] submit success');
       dispatch(fetchReports(filters));
       dispatch(fetchSummary());
       dispatch(closeForm());
     } catch (error) {
-      console.error(error);
+      console.error('[report form] submit failed', error);
     }
   };
 

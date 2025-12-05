@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import {
-  S3Client,
+  S3Client as R2Client,
   PutObjectCommand,
   PutObjectCommandInput,
   ObjectCannedACL,
@@ -9,12 +9,54 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '../config/env';
 
-const s3 = new S3Client({
-  region: env.aws.region,
-  credentials: env.aws.accessKeyId && env.aws.secretAccessKey
+const storage = env.r2;
+
+let endpointUrl: URL | null = null;
+try {
+  endpointUrl = storage.endpoint ? new URL(storage.endpoint) : null;
+} catch {
+  endpointUrl = null;
+}
+
+const buildPublicBase = () => {
+  const trimmed = storage.publicBaseUrl?.replace(/\/$/, '');
+  if (trimmed) {
+    try {
+      const url = new URL(trimmed);
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  if (endpointUrl && storage.bucket) {
+    return `${endpointUrl.origin}/${storage.bucket}`;
+  }
+
+  return '';
+};
+
+const derivedPublicBase = buildPublicBase();
+let derivedBasePath = '';
+try {
+  const parsed = derivedPublicBase ? new URL(derivedPublicBase) : null;
+  if (parsed) {
+    derivedBasePath = parsed.pathname.replace(/\/+$/, '').replace(/^\//, '');
+  }
+} catch {
+  derivedBasePath = '';
+}
+
+const r2Client = new R2Client({
+  region: storage.region || 'auto',
+  endpoint: storage.endpoint || undefined,
+  forcePathStyle: true,
+  requestChecksumCalculation: 'WHEN_REQUIRED',
+  responseChecksumValidation: 'WHEN_REQUIRED',
+  credentials: storage.accessKeyId && storage.secretAccessKey
     ? {
-        accessKeyId: env.aws.accessKeyId,
-        secretAccessKey: env.aws.secretAccessKey,
+        accessKeyId: storage.accessKeyId,
+        secretAccessKey: storage.secretAccessKey,
       }
     : undefined,
 });
@@ -22,65 +64,88 @@ const s3 = new S3Client({
 const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9.-]/g, '_');
 const normalizeKey = (value: string) => {
   if (!value) return '';
-  if (!value.startsWith('http')) return value.replace(/^\//, '');
+  const cleaned = value.replace(/\\/g, '/');
+  if (!cleaned.startsWith('http')) return cleaned.replace(/^\//, '');
   try {
-    const url = new URL(value);
+    const url = new URL(cleaned);
     return url.pathname.replace(/^\//, '');
   } catch {
-    return value;
+    return cleaned.replace(/^\//, '');
   }
 };
 
 export const storageService = {
   async uploadPetPhoto(file: Express.Multer.File) {
-    if (!env.aws.bucket || !env.aws.region) {
-      throw new Error('S3 bucket/region not configured');
+    if (!storage.bucket) {
+      throw new Error('Storage bucket not configured');
     }
 
     const unique = randomBytes(8).toString('hex');
     const baseName = sanitizeFileName(file.originalname || 'photo');
-    const key = `${env.aws.prefix ? `${env.aws.prefix.replace(/\/?$/, '/')}` : ''}pets/${unique}-${baseName}`;
+    const key = `${storage.prefix ? `${storage.prefix.replace(/\/?$/, '/')}` : ''}pets/${unique}-${baseName}`;
 
     const params: PutObjectCommandInput = {
-      Bucket: env.aws.bucket,
+      Bucket: storage.bucket,
       Key: key,
       Body: file.buffer,
       ContentType: file.mimetype,
     };
 
-    if (env.aws.useObjectAcl && env.aws.objectAcl) {
-      params.ACL = env.aws.objectAcl as ObjectCannedACL;
+    if (storage.useObjectAcl && storage.objectAcl) {
+      params.ACL = storage.objectAcl as ObjectCannedACL;
     }
 
-    await s3.send(new PutObjectCommand(params));
+    try {
+      console.info('[r2] uploading', { key, bucket: storage.bucket, endpoint: storage.endpoint, region: storage.region });
+      const result = await r2Client.send(new PutObjectCommand(params));
+      console.info('[r2] upload success', { key, requestId: result.$metadata.requestId, httpStatus: result.$metadata.httpStatusCode });
+    } catch (error: unknown) {
+      const err = error as Record<string, unknown>;
+      console.error('[r2] upload failed', {
+        key,
+        bucket: storage.bucket,
+        endpoint: storage.endpoint,
+        region: storage.region,
+        code: err?.Code || err?.name,
+        message: err?.message,
+        httpStatus: err?.$metadata && (err.$metadata as Record<string, unknown>).httpStatusCode,
+      });
+      throw error;
+    }
 
     return key;
   },
 
   async getPublicUrl(storedPath: string | null) {
     if (!storedPath) return null;
-    const key = normalizeKey(storedPath);
+    let key = normalizeKey(storedPath);
 
-    if (env.aws.publicBaseUrl) {
-      const base = env.aws.publicBaseUrl.replace(/\/$/, '');
+    if (derivedPublicBase) {
+      const base = derivedPublicBase.replace(/\/$/, '');
       return `${base}/${key}`;
     }
 
-    if (env.aws.bucket && env.aws.region) {
+    if (storage.bucket) {
       try {
         return await getSignedUrl(
-          s3,
+          r2Client,
           new GetObjectCommand({
-            Bucket: env.aws.bucket,
+            Bucket: storage.bucket,
             Key: key,
           }),
           {
-            expiresIn: env.aws.signedUrlExpiresIn || 3600,
+            expiresIn: storage.signedUrlExpiresIn || 3600,
           },
         );
       } catch (error) {
         // If signing fails, fall through to return the stored path
-        console.warn('Failed to sign S3 URL', error);
+        console.warn('Failed to sign storage URL', {
+          key,
+          bucket: storage.bucket,
+          endpoint: storage.endpoint,
+          region: storage.region,
+          message: (error as Error)?.message,
+        });
       }
     }
 

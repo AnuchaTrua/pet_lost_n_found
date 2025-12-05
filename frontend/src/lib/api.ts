@@ -7,6 +7,19 @@ export const api = axios.create({
   timeout: 8000,
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('[api] request failed', {
+      url: error?.config?.url,
+      method: error?.config?.method,
+      status: error?.response?.status,
+      data: error?.response?.data,
+    });
+    return Promise.reject(error);
+  },
+);
+
 export const setAuthToken = (token?: string | null) => {
   if (token) {
     api.defaults.headers.common.Authorization = `Bearer ${token}`;
