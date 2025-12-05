@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeftIcon, MapPinIcon, UserIcon, CurrencyDollarIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
 import { useAppDispatch, useAppSelector } from '@/app/hooks';
@@ -22,6 +22,8 @@ export const ReportDetailPage = () => {
   const { user } = useAppSelector((state) => state.auth);
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [form, setForm] = useState({
     petName: '',
     species: '',
@@ -35,10 +37,12 @@ export const ReportDetailPage = () => {
     rewardAmount: '',
     description: '',
   });
+  const editSectionRef = useRef<HTMLDivElement | null>(null);
 
   const report = useMemo(() => items.find((item) => item.id === Number(id)) ?? selected, [id, items, selected]);
   const isOwner = report && user ? report.userId === user.id : false;
   const isAdmin = user?.role === 'admin';
+  const canManage = isOwner || isAdmin;
 
   useEffect(() => {
     if (id && !report) {
@@ -82,15 +86,21 @@ export const ReportDetailPage = () => {
     }
   }, [report]);
 
+  useEffect(() => {
+    if (editing && editSectionRef.current) {
+      editSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [editing]);
+
   const handleStatusChange = async () => {
-    if (!isOwner && !isAdmin) return;
+    if (!report || !canManage) return;
     const nextStatus = report.status === 'closed' ? 'lost' : 'closed';
     await dispatch(updateReportStatus({ id: report.id, status: nextStatus })).unwrap();
     dispatch(fetchSummary());
   };
 
   const handleDelete = async () => {
-    if (!isAdmin || deleting) return;
+    if (!report || !canManage || deleting) return;
     const confirmed = window.confirm('ยืนยันการลบประกาศนี้หรือไม่?');
     if (!confirmed) return;
     try {
@@ -104,32 +114,40 @@ export const ReportDetailPage = () => {
   };
 
   const handleEditSubmit = async () => {
-    if (!report || (!isOwner && !isAdmin)) return;
-    await dispatch(
-      updateReportDetails({
-        id: report.id,
-        payload: {
-          ...report,
-          reportType: report.reportType,
-          status: report.status,
-          dateLost: form.dateLost,
-          province: form.province,
-          district: form.district,
-          lastSeenAddress: form.lastSeenAddress,
-          rewardAmount: Number(form.rewardAmount) || 0,
-          description: form.description,
-          pet: {
-            ...report.pet,
-            name: form.petName,
-            species: form.species,
-            breed: form.breed,
-            color: form.color,
-            sex: form.sex as typeof report.pet.sex,
+    if (!report || !canManage || saving) return;
+    setEditError(null);
+    setSaving(true);
+    try {
+      await dispatch(
+        updateReportDetails({
+          id: report.id,
+          payload: {
+            ...report,
+            reportType: report.reportType,
+            status: report.status,
+            dateLost: form.dateLost,
+            province: form.province,
+            district: form.district,
+            lastSeenAddress: form.lastSeenAddress,
+            rewardAmount: Number(form.rewardAmount) || 0,
+            description: form.description,
+            pet: {
+              ...report.pet,
+              name: form.petName,
+              species: form.species,
+              breed: form.breed,
+              color: form.color,
+              sex: form.sex as typeof report.pet.sex,
+            },
           },
-        },
-      }),
-    ).unwrap();
-    setEditing(false);
+        }),
+      ).unwrap();
+      setEditing(false);
+    } catch (error) {
+      setEditError('ไม่สามารถบันทึกการแก้ไขได้');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -155,19 +173,26 @@ export const ReportDetailPage = () => {
             </div>
             <div className="flex flex-col items-end gap-2">
               <StatusBadge status={report.status} type={report.reportType} />
-              {(isOwner || isAdmin) && (
+              {canManage && (
                 <div className="flex flex-wrap justify-end gap-2">
-                  <button className="btn btn-outline btn-sm" onClick={handleStatusChange}>
+                  <button className="btn btn-outline btn-sm" type="button" onClick={handleStatusChange}>
                     เปลี่ยนสถานะเป็น {report.status === 'closed' ? 'ตามหาอยู่' : 'ปิดเคส'}
                   </button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setEditing((prev) => !prev)}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => {
+                      setEditError(null);
+                      setEditing((prev) => !prev);
+                    }}
+                  >
                     <PencilSquareIcon className="h-4 w-4" />
                     แก้ไขประกาศ
                   </button>
                 </div>
               )}
-              {isAdmin && (
-                <button className="btn btn-error btn-sm" onClick={handleDelete} disabled={deleting}>
+              {canManage && (
+                <button className="btn btn-error btn-sm" type="button" onClick={handleDelete} disabled={deleting}>
                   {deleting ? 'กำลังลบ...' : 'ลบประกาศนี้'}
                 </button>
               )}
@@ -177,7 +202,7 @@ export const ReportDetailPage = () => {
           <img src={cover} alt={report.pet.name} className="max-h-[480px] w-full rounded-2xl object-cover" />
 
           {editing && (isOwner || isAdmin) && (
-            <div className="rounded-2xl border border-base-300 p-4 space-y-3">
+            <div ref={editSectionRef} className="rounded-2xl border border-base-300 p-4 space-y-3">
               <p className="text-lg font-semibold">แก้ไขประกาศ</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="form-control">
@@ -252,12 +277,13 @@ export const ReportDetailPage = () => {
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
               </label>
+              {editError && <p className="text-sm text-error">{editError}</p>}
               <div className="flex justify-end gap-2">
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={() => setEditing(false)}>
                   ยกเลิก
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={handleEditSubmit}>
-                  บันทึกการแก้ไข
+                <button className="btn btn-primary btn-sm" type="button" onClick={handleEditSubmit} disabled={saving}>
+                  {saving ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
                 </button>
               </div>
             </div>

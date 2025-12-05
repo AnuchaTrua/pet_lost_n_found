@@ -137,6 +137,17 @@ export const reportController = {
       throw new HttpException(400, 'Invalid report id');
     }
 
+    const user = (req as Request & { user?: AuthUser }).user;
+    if (!user) {
+      throw new HttpException(401, 'Unauthorized');
+    }
+    if (user.role !== 'admin') {
+      const owned = await reportService.isOwnedByUser(id, user.id);
+      if (!owned) {
+        throw new HttpException(403, 'You can only delete your own reports');
+      }
+    }
+
     await reportService.remove(id);
     res.status(204).send();
   },

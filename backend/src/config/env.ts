@@ -29,7 +29,7 @@ export const env = {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
     prefix: process.env.S3_PREFIX ?? '',
-    useObjectAcl: process.env.S3_USE_OBJECT_ACL !== 'false',
+    useObjectAcl: process.env.S3_USE_OBJECT_ACL === 'true',
     objectAcl: process.env.S3_OBJECT_ACL ?? 'public-read',
     publicBaseUrl: process.env.S3_PUBLIC_BASE_URL ?? '',
     signedUrlExpiresIn: Number(process.env.S3_SIGNED_URL_EXPIRES_IN ?? '3600'),

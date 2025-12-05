@@ -41,18 +41,30 @@ export const storageService = {
     const baseName = sanitizeFileName(file.originalname || 'photo');
     const key = `${env.aws.prefix ? `${env.aws.prefix.replace(/\/?$/, '/')}` : ''}pets/${unique}-${baseName}`;
 
-    const params: PutObjectCommandInput = {
+    const baseParams: PutObjectCommandInput = {
       Bucket: env.aws.bucket,
       Key: key,
       Body: file.buffer,
       ContentType: file.mimetype,
     };
 
-    if (env.aws.useObjectAcl && env.aws.objectAcl) {
-      params.ACL = env.aws.objectAcl as ObjectCannedACL;
-    }
+    const shouldApplyAcl = env.aws.useObjectAcl && env.aws.objectAcl;
+    const params: PutObjectCommandInput = shouldApplyAcl
+      ? { ...baseParams, ACL: env.aws.objectAcl as ObjectCannedACL }
+      : baseParams;
 
-    await s3.send(new PutObjectCommand(params));
+    try {
+      await s3.send(new PutObjectCommand(params));
+    } catch (error) {
+      const code = (error as any)?.Code ?? (error as any)?.name;
+
+      if (shouldApplyAcl && code === 'AccessControlListNotSupported') {
+        console.warn('Bucket does not support ACLs; retrying upload without ACL');
+        await s3.send(new PutObjectCommand({ ...baseParams }));
+      } else {
+        throw error;
+      }
+    }
 
     return key;
   },
